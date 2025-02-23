@@ -4,6 +4,10 @@ public class LocationAppointment : Wrapper<Appointment>
     {
         if (appt.LocationId == Guid.Empty)
             throw new Exception("Appointment must have a valid LocationId");
+        if (appt.BookedStart == DateTime.MinValue)
+            throw new Exception($"{nameof(LocationAppointment)} must have a valid {nameof(Appointment.BookedStart)} date");
+        if (appt.BookedEnd == DateTime.MinValue)
+            throw new Exception($"{nameof(LocationAppointment)} must have a valid {nameof(Appointment.BookedEnd)} date");
     }
 
     public Guid LocationId => Entity.LocationId;
@@ -12,11 +16,16 @@ public class LocationAppointment : Wrapper<Appointment>
     public DateTime BookedStart => Entity.BookedStart;
     public DateTime BookedEnd => Entity.BookedEnd;
 
+    public void SelectResource(MatchingResource matchingResource)
+    {
+        this.Entity.AddSelectedResource(matchingResource);
+    }
+
     public static LocationAppointment From(Appointment appt) => new(appt);
 
     public ResourceAppointment ToResourceAppointment() 
-        => ResourceAppointment.From(Entity); // TODO: See below
+        => ResourceAppointment.From(this); // TODO: See below
 
     public EmployeeAppointment ToEmployeeAppointment() 
-        => EmployeeAppointment.From(Entity);
+        => EmployeeAppointment.From(this);
 }
