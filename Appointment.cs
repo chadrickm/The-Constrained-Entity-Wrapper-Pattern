@@ -64,6 +64,18 @@ public class Appointment
     public IReadOnlyCollection<SelectedAppointmentEmployee> SelectedAppointmentEmployees => _selectedAppointmentEmployees;
     // public virtual List<SelectedAppointmentAddOn> SelectedAppointmentAddOns { get; set; } = [];
 
+    public void AddSelectedResource(MatchingResource matchingResource)
+    {
+        var selectedResource = new SelectedAppointmentResource
+        {
+            Appointment = this,
+            AppointmentId = this.Id,
+            Resource = matchingResource.AsResource(),
+            ResourceId = matchingResource.Id
+        };
+        
+        this._selectedAppointmentResources.Add(selectedResource);
+    }
 }
 public class AppointmentConfiguration : IEntityTypeConfiguration<Appointment>
 {
