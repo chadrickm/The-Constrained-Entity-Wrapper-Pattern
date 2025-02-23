@@ -1,8 +1,8 @@
 public class ResourceAppointment : Wrapper<Appointment>
 {
-    private ResourceAppointment(Appointment appt) : base(appt)
+    private ResourceAppointment(LocationAppointment locationAppointment) : base(locationAppointment.Entity)
     {
-        if (appt.SelectedAppointmentResources.Count == 0)
+        if (locationAppointment.SelectedAppointmentResources.Count == 0)
             throw new Exception($"{nameof(ResourceAppointment)} requires one or more {nameof(SelectedAppointmentResource)}");
     }
 
@@ -10,7 +10,7 @@ public class ResourceAppointment : Wrapper<Appointment>
     public DateTime BookedStart => Entity.BookedStart;
     public DateTime BookedEnd => Entity.BookedEnd;
 
-    public static ResourceAppointment From(Appointment appt) => new(appt);
+    public static ResourceAppointment From(LocationAppointment locationAppointment) => new(locationAppointment);
 
     public Result<ParentResourceAppointment> AsParentResource(Guid parentResourceId)
         => ParentResourceAppointment.From(this, parentResourceId);
