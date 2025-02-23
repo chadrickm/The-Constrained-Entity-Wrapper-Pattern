@@ -39,27 +39,36 @@ Subclasses inherit from `Wrapper<T>` and add domain-specific constraints and beh
 
 #### `LocationAppointment`
 ```csharp
-public class LocationAppointment : Wrapper<Appointment>  
-{  
-    private LocationAppointment(Appointment appt) : base(appt)  
-    {  
-        if (appt.LocationId == Guid.Empty)  
-            throw new Exception("Appointment must have a valid LocationId");  
-    }  
-  
-    public Guid LocationId => Entity.LocationId;  
-    public IReadOnlyCollection<SelectedAppointmentResource> SelectedAppointmentResources => Entity.SelectedAppointmentResources;  
-    public IReadOnlyCollection<SelectedAppointmentEmployee> SelectedAppointmentEmployees => Entity.SelectedAppointmentEmployees;  
-    public DateTime BookedStart => Entity.BookedStart;  
-    public DateTime BookedEnd => Entity.BookedEnd;  
-  
-    public static LocationAppointment From(Appointment appt) => new(appt);  
-  
-    public ResourceAppointment ToResourceAppointment()   
-        => ResourceAppointment.From(Entity); // TODO: See below  
-  
-    public EmployeeAppointment ToEmployeeAppointment()   
-        => EmployeeAppointment.From(Entity);  
+public class LocationAppointment : Wrapper<Appointment>
+{
+    private LocationAppointment(Appointment appt) : base(appt)
+    {
+        if (appt.LocationId == Guid.Empty)
+            throw new Exception("Appointment must have a valid LocationId");
+        if (appt.BookedStart == DateTime.MinValue)
+            throw new Exception($"{nameof(LocationAppointment)} must have a valid {nameof(Appointment.BookedStart)} date");
+        if (appt.BookedEnd == DateTime.MinValue)
+            throw new Exception($"{nameof(LocationAppointment)} must have a valid {nameof(Appointment.BookedEnd)} date");
+    }
+
+    public Guid LocationId => Entity.LocationId;
+    public IReadOnlyCollection<SelectedAppointmentResource> SelectedAppointmentResources => Entity.SelectedAppointmentResources;
+    public IReadOnlyCollection<SelectedAppointmentEmployee> SelectedAppointmentEmployees => Entity.SelectedAppointmentEmployees;
+    public DateTime BookedStart => Entity.BookedStart;
+    public DateTime BookedEnd => Entity.BookedEnd;
+
+    public void SelectResource(MatchingResource matchingResource)
+    {
+        this.Entity.AddSelectedResource(matchingResource);
+    }
+
+    public static LocationAppointment From(Appointment appt) => new(appt);
+
+    public ResourceAppointment ToResourceAppointment() 
+        => ResourceAppointment.From(this); // TODO: See below
+
+    public EmployeeAppointment ToEmployeeAppointment() 
+        => EmployeeAppointment.From(this);
 }
 ```
 - **Constraints**: Ensures `LocationId` is valid.
@@ -67,25 +76,25 @@ public class LocationAppointment : Wrapper<Appointment>
 
 #### `ResourceAppointment`
 ```csharp
-public class ResourceAppointment : Wrapper<Appointment>  
-{  
-    private ResourceAppointment(Appointment appt) : base(appt)  
-    {  
-        if (appt.SelectedAppointmentResources.Count == 0)  
-            throw new Exception($"{nameof(ResourceAppointment)} requires one or more {nameof(SelectedAppointmentResource)}");  
-    }  
-  
-    public IReadOnlyCollection<SelectedAppointmentResource> SelectedAppointmentResources => Entity.SelectedAppointmentResources;  
-    public DateTime BookedStart => Entity.BookedStart;  
-    public DateTime BookedEnd => Entity.BookedEnd;  
-  
-    public static ResourceAppointment From(Appointment appt) => new(appt);  
-  
-    public Result<ParentResourceAppointment> AsParentResource(Guid parentResourceId)  
-        => ParentResourceAppointment.From(this, parentResourceId);  
-  
-    public Result<ChildResourceAppointment> AsChildResource(Guid parentResourceId)  
-        => ChildResourceAppointment.From(this, parentResourceId);  
+public class ResourceAppointment : Wrapper<Appointment>
+{
+    private ResourceAppointment(LocationAppointment locationAppointment) : base(locationAppointment.Entity)
+    {
+        if (locationAppointment.SelectedAppointmentResources.Count == 0)
+            throw new Exception($"{nameof(ResourceAppointment)} requires one or more {nameof(SelectedAppointmentResource)}");
+    }
+
+    public IReadOnlyCollection<SelectedAppointmentResource> SelectedAppointmentResources => Entity.SelectedAppointmentResources;
+    public DateTime BookedStart => Entity.BookedStart;
+    public DateTime BookedEnd => Entity.BookedEnd;
+
+    public static ResourceAppointment From(LocationAppointment locationAppointment) => new(locationAppointment);
+
+    public Result<ParentResourceAppointment> AsParentResource(Guid parentResourceId)
+        => ParentResourceAppointment.From(this, parentResourceId);
+
+    public Result<ChildResourceAppointment> AsChildResource(Guid parentResourceId)
+        => ChildResourceAppointment.From(this, parentResourceId);
 }
 ```
 - **Constraints**: Requires at least one resource.
@@ -99,105 +108,30 @@ public class ResourceAppointment : Wrapper<Appointment>
 
 ### Example Usage
 ```csharp
-public static Result<List<MatchingResourceTimeSegment>> GetResourceTimeSegmentsMinusAppointments(  
-    Guid resourceId,  
-    Guid requiredResourceTypeId,  
-    List<AvailableTimeSegment> availableTimeSegments,  
-    List<ResourceAppointment> resourceAppointments,  
-    List<ParentResourceAppointment> parentResourceAppointments,  
-    List<ChildResourceAppointment> childResourceAppointments)  
-{  
-    var result = new List<MatchingResourceTimeSegment>();  
-  
-    if (parentResourceAppointments.Count > 0 && childResourceAppointments.Count > 0)  
-    {  
-        return Result.Failure<List<MatchingResourceTimeSegment>>(  
-            $"Resource {resourceId} is both a parent and a child resource. " +  
-            $"This is not a valid setup at this time.");  
-    }  
-  
-    foreach (var timeSegment in availableTimeSegments)  
-    {  
-        var parentResourceAppointmentsInTimeSegment = parentResourceAppointments  
-            .Where(p =>  
-                // Condition 1: Starts before or in the timeSegment and ends in the timeSegment  
-                (p.BookedStart <= timeSegment.EndDateTime && p.BookedEnd >= timeSegment.StartDateTime) ||  
-                // Condition 2: Starts in the timeSegment and ends in or after the timeSegment  
-                (p.BookedStart >= timeSegment.StartDateTime && p.BookedStart <= timeSegment.EndDateTime))  
-            .OrderBy(a => a.BookedStart)  
-            .ToList();  
-          
-        var childResourceAppointmentsInTimeSegment = childResourceAppointments  
-            .Where(p =>  
-                // Condition 1: Starts before or in the timeSegment and ends in the timeSegment  
-                (p.BookedStart <= timeSegment.EndDateTime && p.BookedEnd >= timeSegment.StartDateTime) ||  
-                // Condition 2: Starts in the timeSegment and ends in or after the timeSegment  
-                (p.BookedStart >= timeSegment.StartDateTime && p.BookedStart <= timeSegment.EndDateTime))  
-            .OrderBy(a => a.BookedStart)  
-            .ToList();  
-          
-        var resourceAppointmentsInTimeSegment = resourceAppointments  
-            .Where(p =>  
-                // Condition 1: Starts before or in the timeSegment and ends in the timeSegment  
-                (p.BookedStart <= timeSegment.EndDateTime && p.BookedEnd >= timeSegment.StartDateTime) ||   
-                // Condition 2: Starts in the timeSegment and ends in or after the timeSegment  
-                (p.BookedStart >= timeSegment.StartDateTime && p.BookedStart <= timeSegment.EndDateTime))  
-            .OrderBy(a => a.BookedStart)  
-            .ToList();  
-  
-        var noResourceAppointmentsInTimeSegment = resourceAppointmentsInTimeSegment.Count == 0;  
-        var noParentAppointmentsInTimeSegment = parentResourceAppointmentsInTimeSegment.Count == 0;  
-        var noChildAppointmentsInTimeSegment = childResourceAppointmentsInTimeSegment.Count == 0;  
-        var noAppointmentsInTimeSegment = noResourceAppointmentsInTimeSegment &&  
-                                          noParentAppointmentsInTimeSegment &&  
-                                          noChildAppointmentsInTimeSegment;   
-          
-        if (noAppointmentsInTimeSegment)  
-        {  
-            result.Add(MatchingResourceTimeSegment.Create(resourceId, requiredResourceTypeId, timeSegment));  
-            continue;  
-        }  
-  
-        // Track the current start of the free portion of the time segment  
-        var currentStart = timeSegment.StartDateTime;  
-  
-        resourceAppointmentsInTimeSegment.AddRange(parentResourceAppointmentsInTimeSegment.AsResourceAppointments());  
-        resourceAppointmentsInTimeSegment.AddRange(childResourceAppointmentsInTimeSegment.AsResourceAppointments());  
-        foreach (var appointment in resourceAppointmentsInTimeSegment)  
-        {  
-            // If there's free time before this appointment, add it as a new segment  
-            var hasFreeTimeBeforeAppointment = appointment.BookedStart > currentStart;  
-            if (hasFreeTimeBeforeAppointment)  
-            {  
-                result.Add(MatchingResourceTimeSegment.Create(  
-                    resourceId,  
-                    requiredResourceTypeId,  
-                    date: currentStart.Date,  
-                    startTime: currentStart.TimeOfDay,  
-                    endTime: appointment.BookedStart.TimeOfDay));  
-            }  
-  
-            // Move the current start to after the end of this appointment  
-            var appointmentEndsAfterCurrentStart = appointment.BookedEnd > currentStart;  
-            currentStart = appointmentEndsAfterCurrentStart  
-                ? appointment.BookedEnd  
-                : currentStart;  
-        }  
-  
-        // If there's remaining free time after the last appointment, add it as a segment  
-        var hasFreeTimeAfterAppointment = currentStart < timeSegment.EndDateTime;  
-        if (hasFreeTimeAfterAppointment)  
-        {  
-            result.Add(MatchingResourceTimeSegment.Create(  
-                resourceId,  
-                requiredResourceTypeId,  
-                timeSegment.Date,  
-                startTime: currentStart.TimeOfDay,   
-                endTime: timeSegment.EndTime));  
-        }  
-    }  
-  
-    return result;  
+public static List<ChildResourceAppointment> GetChildResourceAppointmentsOfMatchingResourceIfAny(
+    List<ResourceAppointment> resourceAppointments,
+    List<LocationResource> locationResources, 
+    MatchingResource matchingResource)
+{
+    var childResourceAppointmentsToReturn = new List<ChildResourceAppointment>();
+    
+    // If this matchingResource is a parent on other resources then we need to check for any appointments
+    // in the child resources and if they have appointments we need to build our availabilities based on
+    // when all the children are available.
+    var childResourceIds = locationResources
+        .Where(r => r.ParentResourceId == matchingResource.Id)
+        .Select(r => r.Id)
+        .ToList();
+
+    if (childResourceIds.Count == 0) return childResourceAppointmentsToReturn;
+
+    childResourceAppointmentsToReturn = resourceAppointments
+        .Where(a => a.SelectedAppointmentResources
+            .Any(r => childResourceIds.Contains(r.ResourceId)))
+        .Select(la => ChildResourceAppointment.From(la, matchingResource.Id))
+        .ToList();
+
+    return childResourceAppointmentsToReturn;
 }
 ```
 ## Benefits
