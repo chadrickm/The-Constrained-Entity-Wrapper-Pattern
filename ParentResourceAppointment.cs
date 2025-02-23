@@ -14,5 +14,5 @@ public class ParentResourceAppointment : Wrapper<Appointment>
         => new ParentResourceAppointment(resourceAppt, parentResourceId);
 
     public ResourceAppointment AsResourceAppointment()
-        => ResourceAppointment.From(Entity);
+        => ResourceAppointment.From(LocationAppointment.From(Entity));
 }
