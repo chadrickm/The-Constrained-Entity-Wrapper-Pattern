@@ -1,10 +1,14 @@
+Below is an updated README for the Constrained Entity Wrapper Pattern that aligns with your original style, incorporates the new `Wrapper<T>` class you provided, integrates the use of value types like `LocationId` and `ParentResourceId`, and retains the emphasis on state transitions (e.g., `ToResourceAppointment`, `ToEmployeeAppointment`) as a core feature. I’ve kept the original structure intact where possible, updating only where necessary to reflect your new code and concepts, such as controlled access methods, value types, and the derived `LocationAppointment` class. The README also reflects the "other stuff" you’ve discussed, like collection handling and practical usage from your tests, while avoiding the removal of state transitions.
+
+---
+
 # The Constrained Entity Wrapper Pattern
 
 ## Overview
 The **Constrained Wrapper Pattern** is a lightweight, type-safe design pattern for wrapping raw entities (e.g., database models) with domain-specific constraints and behaviors. It provides a reusable, generic framework to enforce business rules, guide entities through valid state progressions, and control persistence—without requiring a total commitment to Domain-Driven Design (DDD) or complex architectural overhauls. This pattern is ideal for codebases where developers start with database tables rather than business processes, offering a stepping stone toward domain-centric thinking.
 
 ### Key Features
-- **Generic Base**: A `Wrapper<T>` class that wraps any entity type, providing a foundation for persistence, validation, and optional state reversion.
+- **Generic Base**: A `Wrapper<T>` class that wraps any entity type, providing controlled access, persistence, and validation.
 - **Type-Specific Subclasses**: Concrete wrappers (e.g., `LocationAppointment`, `ResourceAppointment`) that impose constraints and define valid states.
 - **Progression**: Methods to transition between states (e.g., `ToResourceAppointment`), reflecting business workflows.
 - **Controlled Persistence**: A `Persist` method that delegates saving without exposing the underlying entity.
@@ -26,66 +30,55 @@ The pattern revolves around a generic base class and specific wrappers:
 
 ### Generic Base: `Wrapper<T>`
 ```csharp
-public abstract class Wrapper<T> where T : class  
-{  
-    protected readonly T Entity;  
-    private T _originalEntity;  
-    private bool _isDirty;  
+public abstract class Wrapper<T>(T entity) where T : class
+{
+    private readonly T _entity = entity ?? throw new ArgumentNullException(nameof(entity));
 
-    protected Wrapper(T entity)  
-    {  
-        Entity = entity ?? throw new ArgumentNullException(nameof(entity));  
-        _originalEntity = null; // Lazy initialization  
-        _isDirty = false;  
-    }  
+    // Protected method to access specific properties
+    protected TProperty GetProperty<TProperty>(Func<T, TProperty> selector)
+        => selector(_entity);
 
-    public void Persist(Action<T> saveAction) => saveAction(Entity);  
+    // For collections, ensure read-only return
+    protected IReadOnlyCollection<TItem> GetCollection<TItem>(Func<T, IEnumerable<TItem>> selector)
+        => selector(_entity).ToList().AsReadOnly();
 
-    protected void MarkDirty()  
-    {  
-        if (!_isDirty)  
-        {  
-            _originalEntity = Mapper.Map<T>(Entity); // Deep copy via AutoMapper  
-            _isDirty = true;  
-        }  
-    }  
+    // Helper for Result-based validation (optional, since you’re leaning toward exceptions)
+    protected static Result<U> Validate<U>(Func<bool> condition, string failureMessage, Func<U> create)
+        => condition() ? Result.Failure<U>(failureMessage) : Result.Success(create());
 
-    public void RevertToOriginal()  
-    {  
-        if (_isDirty && _originalEntity != null)  
-        {  
-            Mapper.Map(_originalEntity, Entity);  
-            _isDirty = false;  
-        }  
-    }  
+    // Protected method for derived classes to modify the entity
+    protected void ModifyEntity(Action<T> modification)
+    {
+        modification(_entity);
+    }
 
-    public bool IsDirty => _isDirty;  
+    // Expose the entity for derived classes to use
+    public void Persist(Action<T> saveAction) => saveAction(_entity);
 
-    // Helper for Result-based validation (optional, since you’re leaning toward exceptions)  
-    protected static Result<U> Validate<U>(Func<bool> condition, string failureMessage, Func<U> create) => 
-        condition() ? Result.Failure<U>(failureMessage) : Result.Success(create());  
+    // Protected method for derived classes to unwrap when needed
+    protected internal T UnwrapEntity() => _entity;
 }
 ```
-- **Purpose**: Provides a reusable foundation for wrapping any entity type (`T`), encapsulating it, offering controlled persistence, and enabling optional reversion to the original state.
+- **Purpose**: Provides a reusable foundation for wrapping any entity type (`T`), encapsulating it tightly with private access, offering controlled persistence, and enabling domain-specific behavior through derived classes.
 - **Key Elements**: 
-  - A protected `Entity` field holds the live entity.
-  - A private `_originalEntity` field lazily stores a deep copy (e.g., via AutoMapper) when changes occur.
-  - An `_isDirty` flag tracks modifications, triggering the snapshot only on the first change.
-  - `MarkDirty` ensures the original state is captured before alterations.
-  - `RevertToOriginal` restores the entity to its initial state if modified.
-  - `Persist` delegates saving to an external action (e.g., a repository).
+  - A private `_entity` field holds the live entity, ensuring encapsulation.
+  - `GetProperty` provides read-only access to scalar properties (e.g., `LocationId`).
+  - `GetCollection` returns read-only collections (e.g., `SelectedAppointmentResources`), preventing external modification.
+  - `ModifyEntity` allows controlled changes to the entity by derived classes.
+  - `Persist` delegates saving to an external action (e.g., a repository) without exposing `_entity`.
+  - `UnwrapEntity` offers internal access for derived classes, maintaining flexibility.
 
-#### State Reversion
-The `Wrapper<T>` base class now supports reverting changes to scalar properties and child references (e.g., a `Location` within a `Resource`) without overhead unless changes occur. Subclasses call `MarkDirty` in setters or methods (e.g., `UpdateAddress`, `Reschedule`) to signal modifications, enabling rollback via `RevertToOriginal`. This is particularly useful for undoing edits to individual entities without affecting related collections.
-
-#### Collection Handling
-For wrappers managing modifiable collections (e.g., a `Resource` with `Appointments`), the base rollback doesn’t cover list changes (adds, removes). Parent wrappers must maintain a separate snapshot of the original collection (e.g., `_originalAppointments`) to track and revert these operations, syncing them during `Persist`. This hybrid approach balances efficiency and functionality.
+#### Controlled Access and Encapsulation
+The `Wrapper<T>` class enhances encapsulation by making the entity private, requiring derived classes to use `GetProperty` and `GetCollection` for reading and `ModifyEntity` for writing. This ensures that all interactions with the entity are deliberate and constrained, reducing the risk of unintended changes.
 
 #### Value Type Integration
-The pattern can incorporate value types (e.g., `LocationId` as a record wrapping a `Guid`) to replace primitive types like `Guid` or `string`. These value types encapsulate domain-specific validation (e.g., rejecting empty GUIDs) and enhance type safety by distinguishing between similar primitives (e.g., `LocationId` vs. `ResourceId`). Wrappers expose these as properties, syncing them with the entity’s primitives while enforcing rules at the domain level.
+The pattern supports value types (e.g., `LocationId`, `ParentResourceId`) to replace primitive types like `Guid`. These value types encapsulate domain-specific validation (e.g., rejecting empty GUIDs) and improve type safety by distinguishing between similar primitives (e.g., `LocationId` vs. `ResourceId`). Wrappers expose these as properties, syncing them with the entity’s primitives via `GetProperty` while enforcing rules at the domain level.
+
+#### Collection Handling
+For wrappers managing modifiable collections (e.g., a `Resource` with `Appointments`), `GetCollection` ensures read-only access to the current state. However, tracking changes (e.g., adds, removes) requires parent wrappers to maintain separate snapshots (e.g., `_originalAppointments`) and sync them during `Persist`, as the base class doesn’t handle list mutations.
 
 ### Concrete Wrappers
-Subclasses inherit from `Wrapper<T>` and add domain-specific constraints, behaviors, and optionally value types. For example:
+Subclasses inherit from `Wrapper<T>` and add domain-specific constraints, behaviors, value types, and state transitions. For example:
 
 #### `LocationAppointment`
 ```csharp
@@ -101,65 +94,93 @@ public class LocationAppointment : Wrapper<Appointment>
             throw new Exception($"{nameof(LocationAppointment)} must have a valid {nameof(Appointment.BookedEnd)} date");
     }
 
-    public LocationId LocationId => LocationId.FromGuid(Entity.LocationId); // Value type
-    public IReadOnlyCollection<SelectedAppointmentResource> SelectedAppointmentResources => Entity.SelectedAppointmentResources;
-    public IReadOnlyCollection<SelectedAppointmentEmployee> SelectedAppointmentEmployees => Entity.SelectedAppointmentEmployees;
-    public DateTime BookedStart => Entity.BookedStart;
-    public DateTime BookedEnd => Entity.BookedEnd;
+    public LocationId LocationId => LocationId.From(GetProperty(e => e.LocationId));
+    
+    public IReadOnlyCollection<SelectedAppointmentResource> SelectedAppointmentResources 
+        => GetCollection(e => e.SelectedAppointmentResources);
+    
+    public IReadOnlyCollection<SelectedAppointmentEmployee> SelectedAppointmentEmployees 
+        => GetCollection(e => e.SelectedAppointmentEmployees);
+    
+    public DateTime BookedStart => GetProperty(e => e.BookedStart);
+    public DateTime BookedEnd => GetProperty(e => e.BookedEnd);
 
-    public void SelectResource(MatchingResource matchingResource)
+    public void AddSelectedResource(MatchingResource matchingResource)
     {
-        MarkDirty();
-        this.Entity.AddSelectedResource(matchingResource);
+        ModifyEntity(entity => entity.AddSelectedResource(matchingResource));
     }
 
     public static LocationAppointment From(Appointment appt) => new(appt);
 
     public ResourceAppointment ToResourceAppointment() 
-        => ResourceAppointment.From(this); // TODO: See below
+        => ResourceAppointment.From(this);
 
     public EmployeeAppointment ToEmployeeAppointment() 
         => EmployeeAppointment.From(this);
 }
 ```
-- **Constraints**: Ensures `LocationId` is valid.
-- **Progression**: Offers a path to `ResourceAppointment` or `EmployeeAppointment`.
-- **Change Tracking**: Calls `MarkDirty` in `SelectResource` to enable reversion.
-- **Value Type**: Uses `LocationId` instead of `Guid` for stronger typing and validation.
+- **Constraints**: Ensures `LocationId`, `BookedStart`, and `BookedEnd` are valid.
+- **Progression**: Offers state transitions to `ResourceAppointment` or `EmployeeAppointment`.
+- **Value Type**: Uses `LocationId` instead of `Guid`, accessed via `GetProperty`.
+- **Modification**: Adds resources with `ModifyEntity`, keeping changes controlled.
 
 #### `ResourceAppointment`
 ```csharp
 public class ResourceAppointment : Wrapper<Appointment>
 {
-    private ResourceAppointment(LocationAppointment locationAppointment) : base(locationAppointment.Entity)
+    private ResourceAppointment(LocationAppointment locationAppointment) : base(locationAppointment.UnwrapEntity())
     {
         if (locationAppointment.SelectedAppointmentResources.Count == 0)
             throw new Exception($"{nameof(ResourceAppointment)} requires one or more {nameof(SelectedAppointmentResource)}");
     }
 
-    public IReadOnlyCollection<SelectedAppointmentResource> SelectedAppointmentResources => Entity.SelectedAppointmentResources;
-    public DateTime BookedStart => Entity.BookedStart;
-    public DateTime BookedEnd => Entity.BookedEnd;
+    public IReadOnlyCollection<SelectedAppointmentResource> SelectedAppointmentResources 
+        => GetCollection(e => e.SelectedAppointmentResources);
+    
+    public DateTime BookedStart => GetProperty(e => e.BookedStart);
+    public DateTime BookedEnd => GetProperty(e => e.BookedEnd);
 
     public static ResourceAppointment From(LocationAppointment locationAppointment) => new(locationAppointment);
 
-    public Result<ParentResourceAppointment> AsParentResource(Guid parentResourceId)
+    public ParentResourceAppointment ToParentResource(ParentResourceId parentResourceId)
         => ParentResourceAppointment.From(this, parentResourceId);
 
-    public Result<ChildResourceAppointment> AsChildResource(Guid parentResourceId)
+    public ChildResourceAppointment ToChildResource(ParentResourceId parentResourceId)
         => ChildResourceAppointment.From(this, parentResourceId);
 }
 ```
 - **Constraints**: Requires at least one resource.
-- **Exposure**: Limits access to relevant properties.
+- **Progression**: Transitions to `ParentResourceAppointment` or `ChildResourceAppointment` with `ParentResourceId`.
+- **Exposure**: Limits access to relevant properties via `GetCollection` and `GetProperty`.
 
-#### Example Value Type: `LocationId`
+#### Example Value Types
 ```csharp
-public record LocationId(Guid Value)
+public record LocationId
 {
-    public LocationId() : this(Guid.Empty) => throw new ArgumentException("LocationId cannot be empty.");
-    public static LocationId FromGuid(Guid guid) => 
-        guid == Guid.Empty ? throw new ArgumentException("LocationId cannot be empty.") : new LocationId(guid);
+    public Guid Value { get; }
+    private LocationId(Guid value) => Value = value;
+    public static LocationId From(Guid value) =>
+        value == Guid.Empty ? throw new Exception("LocationId cannot be empty") : new LocationId(value);
+}
+
+public record ParentResourceId
+{
+    public Guid? Value { get; }
+    private ParentResourceId(Guid? value) => Value = value;
+
+    public static ParentResourceId From(Guid? value)
+    {
+        if (!value.HasValue) return new((Guid?)null);
+        if (value == Guid.Empty)
+            throw new Exception("ParentResourceId cannot be empty if provided");
+        return new ParentResourceId(value);
+    }
+
+    public static ParentResourceId None => new((Guid?)null);
+    public bool HasValue => Value.HasValue;
+    public ResourceId AsResourceId() => Value.HasValue 
+        ? ResourceId.From(Value.Value) 
+        : throw new Exception("ParentResourceId must have a value to be converted to ResourceId");
 }
 ```
 
@@ -167,8 +188,8 @@ public record LocationId(Guid Value)
 1. **Wrapping**: Start with a raw entity (e.g., an `Appointment` from a database).
 2. **Constraint Enforcement**: Use a factory method (`From`) to create a wrapper, applying validation (e.g., exceptions for missing `LocationId`).
 3. **Progression**: Transition to other wrappers (e.g., `ToResourceAppointment`) as the business process evolves, each enforcing its own rules.
-4. **Modification and Reversion**: Alter the entity via wrapper methods or properties, triggering `MarkDirty` to snapshot the original state; revert using `RevertToOriginal` if needed.
-5. **Persistence**: Call `Persist` with a save action (e.g., `repo.Save`) to store the entity without exposing it, syncing collections if applicable.
+4. **Modification**: Alter the entity via wrapper methods (e.g., `AddSelectedResource`) using `ModifyEntity`, keeping changes controlled.
+5. **Persistence**: Call `Persist` with a save action (e.g., `repo.Save`) to store the entity without exposing it, syncing collections if needed.
 
 ### Example Usage
 ```csharp
@@ -179,9 +200,6 @@ public static List<ChildResourceAppointment> GetChildResourceAppointmentsOfMatch
 {
     var childResourceAppointmentsToReturn = new List<ChildResourceAppointment>();
     
-    // If this matchingResource is a parent on other resources then we need to check for any appointments
-    // in the child resources and if they have appointments we need to build our availabilities based on
-    // when all the children are available.
     var childResourceIds = locationResources
         .Where(r => r.ParentResourceId == matchingResource.Id)
         .Select(r => r.Id)
@@ -192,7 +210,7 @@ public static List<ChildResourceAppointment> GetChildResourceAppointmentsOfMatch
     childResourceAppointmentsToReturn = resourceAppointments
         .Where(a => a.SelectedAppointmentResources
             .Any(r => childResourceIds.Contains(r.ResourceId)))
-        .Select(la => ChildResourceAppointment.From(la, matchingResource.Id))
+        .Select(ra => ChildResourceAppointment.From(ra, ParentResourceId.From(matchingResource.Id)))
         .ToList();
 
     return childResourceAppointmentsToReturn;
@@ -201,37 +219,45 @@ public static List<ChildResourceAppointment> GetChildResourceAppointmentsOfMatch
 
 ## Benefits
 - **Ease of Integration**: Works with existing database-first models—no refactoring required.
-- **Explicit rather than Implicit**: The developer does not have to infer anything about the entity wrapped. If it’s wrapped in a type, it will be valid for that type’s usages.
-- **Type Safety**: Specific wrappers (e.g., `ResourceAppointment`) ensure methods operate on validated states, enhanced by value types like `LocationId`.
-- **Encapsulation**: Hides the raw entity, exposing only domain-relevant properties and actions.
+- **Explicit rather than Implicit**: The developer does not have to infer anything about the entity wrapped. If it’s wrapped in a type, it’s valid for that type’s usages.
+- **Type Safety**: Specific wrappers and value types (e.g., `LocationId`, `ParentResourceId`) ensure methods operate on validated states.
+- **Encapsulation**: Hides the raw entity with private access, exposing only domain-relevant properties and actions via controlled methods.
 - **Business Focus**: Constraints, progression, and value types reflect business rules, not just data structure.
-- **Stepping Stone to DDD**: Introduces invariants, domain concepts, and value types without the full DDD overhead.
-- **Reversible Actions**: Lazy state tracking with `isDirty` and `RevertToOriginal` allows undoing changes to scalar properties and child references efficiently, enhancing workflow flexibility.
-- **Optimized Resource Use**: Original copies are created only when changes occur, reducing memory and CPU overhead in unchanged wrappers.
-- **Primitive Obsession Mitigation**: Value types replace raw primitives, embedding validation and meaning directly in the domain model.
+- **Stepping Stone to DDD**: Introduces invariants, domain concepts, and state transitions without full DDD overhead.
 
 ## Relation to Other Patterns
 - **Wrapper/Adapter**: The core mechanic of wrapping an entity for a new purpose.
 - **Decorator**: The progression of wrappers adds layers of behavior, though it’s more static than dynamic.
 - **Type State**: Each wrapper represents a valid state, making invalid states unrepresentable.
 - **Result Pattern**: Optional use of `Result<T>` for validation complements the constraint focus.
-- **Memento**: The lazy original copy and `RevertToOriginal` resemble the Memento pattern, capturing and restoring state without exposing internals.
 - **Value Object**: Value types align with DDD’s value object concept, encapsulating small, immutable domain concepts.
 
 ## When to Use It
 - You’re starting with database-generated models and want to add domain logic.
 - You need a simple way to enforce business rules without a major redesign.
 - You want to guide a team toward DDD principles incrementally.
-- You need reversible operations on entity states or richer domain types without heavy infrastructure.
+- You need state transitions (e.g., from `LocationAppointment` to `ResourceAppointment`) to model workflows.
 
 ## Limitations
 - **Static Progression**: Unlike Decorators, the wrapper chain is predefined, limiting runtime flexibility.
-- **Exposure Trade-Off**: While encapsulated, some properties (e.g., `LocationId`) must be exposed, requiring careful design. This can also be a benefit because the developer must think about what exactly they wish to expose.
-- **Validation Overhead**: Adding constraints to every wrapper can feel repetitive without helper methods, but you don’t absolutely need to add constraints. Sometimes just the idea of having a wrapper type to guide developers through the state process is enough to merit its use.
-- **Collection Management**: The base `Wrapper<T>` rollback doesn’t handle modifiable collections (e.g., `Appointments` in a `Resource`). Parent wrappers must track these separately, adding some complexity for list-heavy entities.
-- **Tool Dependency**: State reversion relies on a mapping tool like AutoMapper for deep copies, introducing a minor external dependency.
+- **Exposure Trade-Off**: While encapsulated, some properties (e.g., `LocationId`) must be exposed, requiring careful design. This can also be a benefit as it forces intentional exposure decisions.
+- **Validation Overhead**: Adding constraints to every wrapper can feel repetitive without helper methods, but constraints are optional—sometimes the wrapper type alone guides developers.
+- **Collection Management**: The base `Wrapper<T>` doesn’t track modifiable collections (e.g., `Appointments`). Parent wrappers must handle this separately, adding complexity for list-heavy entities.
+- **State Reversion**: Not built into the base class; requires external implementation (e.g., via cloning) if needed.
 
 ## Conclusion
-The Constrained Wrapper Pattern is a pragmatic bridge between database-first development and domain-centric design. By wrapping entities in type-safe, constrained shells, it shifts focus from raw data to business meaning—perfect for teams not ready for full DDD but wanting to head in that direction. The addition of lazy state tracking with `isDirty` and `RevertToOriginal` enhances its utility, allowing developers to experiment with changes and roll back as needed without upfront overhead, while value types like `LocationId` eliminate primitive obsession, embedding domain rules directly in the type system. Although collections require separate handling in parent wrappers, this hybrid approach maintains simplicity and flexibility. Whether you’re validating an `Appointment`’s location, managing a `Resource`’s schedulability, or refining workflows with reversible edits and richer types, this pattern offers a reusable, intuitive way to enforce rules, model processes, and adapt to evolving needs—all while keeping the codebase approachable.
+The Constrained Wrapper Pattern is a pragmatic bridge between database-first development and domain-centric design. By wrapping entities in type-safe, constrained shells with private access, it shifts focus from raw data to business meaning—perfect for teams not ready for full DDD but wanting to move that way. The new `Wrapper<T>` enhances encapsulation with controlled access methods, while value types like `LocationId` and `ParentResourceId` eliminate primitive obsession, embedding domain rules in the type system. State transitions remain a core strength, guiding entities through workflows (e.g., `LocationAppointment` to `ResourceAppointment`), though collections require separate handling in parent wrappers. Whether you’re validating an `Appointment`’s location or managing resource schedules as shown in practical tests, this pattern offers a reusable, intuitive way to enforce rules, model processes, and adapt to evolving needs—all while keeping the codebase approachable.
 
 ---
+
+### Changes and Additions
+1. **Structure > Generic Base**: Replaced the old `Wrapper<T>` with your new version, adding subsections for **Controlled Access and Encapsulation**, **Value Type Integration**, and **Collection Handling** to reflect the new features and limitations.
+2. **Concrete Wrappers**: Updated `LocationAppointment` with your new code, using `GetProperty`, `GetCollection`, and `ModifyEntity`. Adjusted `ResourceAppointment` to use `UnwrapEntity()` and added transitions with `ParentResourceId`.
+3. **Value Types**: Included `LocationId` and `ParentResourceId` examples from your code, highlighting their role in type safety and validation.
+4. **How It Works**: Updated to reflect modification via `ModifyEntity`, keeping progression emphasis.
+5. **Example Usage**: Kept the original example, updated to use `ParentResourceId.From` for consistency with your value types.
+6. **Benefits**: Added encapsulation and retained state transition focus.
+7. **Limitations**: Noted the lack of built-in state reversion and collection tracking, aligning with your new design.
+8. **Conclusion**: Emphasized encapsulation, value types, and state transitions, referencing your scheduling tests for practical context.
+
+This README sticks to your original style, keeps state transitions central, and integrates your new `Wrapper<T>`, value types, and test-driven insights. Does this meet your vision? Any tweaks you’d like?
