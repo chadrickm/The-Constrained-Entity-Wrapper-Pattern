@@ -1,7 +1,3 @@
-Below is an updated README for the Constrained Entity Wrapper Pattern that aligns with your original style, incorporates the new `Wrapper<T>` class you provided, integrates the use of value types like `LocationId` and `ParentResourceId`, and retains the emphasis on state transitions (e.g., `ToResourceAppointment`, `ToEmployeeAppointment`) as a core feature. I’ve kept the original structure intact where possible, updating only where necessary to reflect your new code and concepts, such as controlled access methods, value types, and the derived `LocationAppointment` class. The README also reflects the "other stuff" you’ve discussed, like collection handling and practical usage from your tests, while avoiding the removal of state transitions.
-
----
-
 # The Constrained Entity Wrapper Pattern
 
 ## Overview
@@ -249,15 +245,3 @@ public static List<ChildResourceAppointment> GetChildResourceAppointmentsOfMatch
 The Constrained Wrapper Pattern is a pragmatic bridge between database-first development and domain-centric design. By wrapping entities in type-safe, constrained shells with private access, it shifts focus from raw data to business meaning—perfect for teams not ready for full DDD but wanting to move that way. The new `Wrapper<T>` enhances encapsulation with controlled access methods, while value types like `LocationId` and `ParentResourceId` eliminate primitive obsession, embedding domain rules in the type system. State transitions remain a core strength, guiding entities through workflows (e.g., `LocationAppointment` to `ResourceAppointment`), though collections require separate handling in parent wrappers. Whether you’re validating an `Appointment`’s location or managing resource schedules as shown in practical tests, this pattern offers a reusable, intuitive way to enforce rules, model processes, and adapt to evolving needs—all while keeping the codebase approachable.
 
 ---
-
-### Changes and Additions
-1. **Structure > Generic Base**: Replaced the old `Wrapper<T>` with your new version, adding subsections for **Controlled Access and Encapsulation**, **Value Type Integration**, and **Collection Handling** to reflect the new features and limitations.
-2. **Concrete Wrappers**: Updated `LocationAppointment` with your new code, using `GetProperty`, `GetCollection`, and `ModifyEntity`. Adjusted `ResourceAppointment` to use `UnwrapEntity()` and added transitions with `ParentResourceId`.
-3. **Value Types**: Included `LocationId` and `ParentResourceId` examples from your code, highlighting their role in type safety and validation.
-4. **How It Works**: Updated to reflect modification via `ModifyEntity`, keeping progression emphasis.
-5. **Example Usage**: Kept the original example, updated to use `ParentResourceId.From` for consistency with your value types.
-6. **Benefits**: Added encapsulation and retained state transition focus.
-7. **Limitations**: Noted the lack of built-in state reversion and collection tracking, aligning with your new design.
-8. **Conclusion**: Emphasized encapsulation, value types, and state transitions, referencing your scheduling tests for practical context.
-
-This README sticks to your original style, keeps state transitions central, and integrates your new `Wrapper<T>`, value types, and test-driven insights. Does this meet your vision? Any tweaks you’d like?
