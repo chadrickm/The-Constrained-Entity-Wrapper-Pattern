@@ -1,6 +1,6 @@
-# The Constrained Entity Wrapper Pattern: A Step-by-Step Tutorial
+# The Constrained Entity Wrapper Pattern:
 
-Welcome to the **Constrained Entity Wrapper Pattern**! This lightweight, type-safe design pattern helps you wrap raw database entities with domain-specific constraints and behaviors. It’s most useful if you’re starting with database tables but want to add business logic without diving into full Domain-Driven Design (DDD). In this tutorial, we’ll take a simple `Appointment` entity with an `Id` and a collection of child `SelectedAppointmentResource` objects, wrap it, tackle primitive obsession with value types, enforce business rules, guide it through state transitions, and ensure only a fully validated state with resources can be persisted—all step by step.
+Welcome to the **Constrained Entity Wrapper Pattern**! This lightweight, type-safe design pattern helps you wrap raw database entities with domain-specific constraints and behaviors. It’s most useful if you’re starting with database tables but want to add business logic without diving into full Domain-Driven Design (DDD). In this tutorial, we’ll take a simple `Appointment` entity with a collection of child `SelectedAppointmentResource` objects, wrap it, tackle primitive obsession with value types, enforce business rules, guide it through state transitions, and ensure only a fully validated state with resources can be persisted—all step by step.
 
 ## Step 1: Start with a Simple Entity
 Let’s begin with a basic `Appointment` entity, straight from a database, with no rules or constraints:
